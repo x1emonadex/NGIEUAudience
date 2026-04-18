@@ -1,8 +1,7 @@
-@file:OptIn(kotlin.time.ExperimentalTime::class)
-
 package ru.ngieu.audience
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -35,9 +34,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
-import kotlinx.datetime.TimeZone
-import kotlinx.datetime.toLocalDateTime
-import kotlin.time.Clock
 
 private data class RoomLesson(
     val room: String,
@@ -124,8 +120,8 @@ fun App() {
         fun refreshCurrentWeek() {
             scope.launch {
                 try {
-                    val today = todayIsoDate()
-                    currentWeekIsUpper = ApiClient.getWeekType(today).isUpperWeek
+                    val today = todayIsoDatePlatform()
+                    currentWeekIsUpper = ApiClient.getWeekType(today)?.isUpperWeek
                 } catch (_: Exception) {
                     currentWeekIsUpper = null
                 }
@@ -230,245 +226,413 @@ fun App() {
         val busyCount = rangeStatuses.count { it.isBusy }
         val freeCount = rangeStatuses.count { !it.isBusy }
 
-        Row(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(12.dp)
         ) {
-            Card(
-                modifier = Modifier
-                    .width(320.dp)
-                    .fillMaxHeight()
-            ) {
+            val compact = maxWidth < 950.dp
+
+            if (compact) {
                 Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text(
-                        text = "НГИЭУ Аудитории",
-                        style = MaterialTheme.typography.headlineSmall
-                    )
-
-                    Text(
-                        text = "Данные обновляются при каждом нажатии кнопки",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-
-                    Text(
-                        text = "Текущая неделя: ${currentWeekLabel(currentWeekIsUpper)}",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-
-                    Button(
-                        onClick = {
+                    SidebarCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        currentWeekIsUpper = currentWeekIsUpper,
+                        isLoading = isLoading,
+                        loadedGroups = loadedGroups,
+                        totalGroups = totalGroups,
+                        errorText = errorText,
+                        searchText = searchText,
+                        onSearchChange = { searchText = it },
+                        filter = filter,
+                        onFilterChange = { filter = it },
+                        showFilters = showFilters,
+                        onToggleFilters = { showFilters = !showFilters },
+                        onRefresh = {
                             refreshCurrentWeek()
                             loadAllRooms()
                         },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(if (isLoading) "Обновление..." else "Обновить данные")
-                    }
-
-                    OutlinedButton(
-                        onClick = { showFilters = !showFilters },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(if (showFilters) "Скрыть фильтры" else "Показать фильтры")
-                    }
-
-                    if (isLoading) {
-                        CircularProgressIndicator()
-                        Text("Загружено групп: $loadedGroups из $totalGroups")
-                    }
-
-                    if (errorText != null) {
-                        Text(
-                            text = "Ошибка: $errorText",
-                            color = MaterialTheme.colorScheme.error
-                        )
-                    }
-
-                    OutlinedTextField(
-                        value = searchText,
-                        onValueChange = { searchText = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Поиск кабинета или преподавателя") }
+                        totalRooms = rangeStatuses.size,
+                        busyCount = busyCount,
+                        freeCount = freeCount,
+                        visibleCount = visibleStatuses.size
                     )
 
-                    FilterBlock(title = "Показать") {
-                        FlowRow(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            RoomFilter.entries.forEach { roomFilter ->
-                                SelectButton(
-                                    text = roomFilter.title,
-                                    selected = filter == roomFilter,
-                                    onClick = { filter = roomFilter }
-                                )
-                            }
-                        }
+                    FiltersCard(
+                        modifier = Modifier.fillMaxWidth(),
+                        selectedDay = selectedDay,
+                        selectedPair = selectedPair,
+                        selectedWeek = selectedWeek,
+                        selectedRange = selectedRange,
+                        currentWeekIsUpper = currentWeekIsUpper,
+                        showFilters = showFilters,
+                        onWeekChange = { selectedWeek = it },
+                        onDayChange = { selectedDay = it },
+                        onPairChange = { selectedPair = it },
+                        onRangeChange = { selectedRange = it }
+                    )
+
+                    RoomsList(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        statuses = visibleStatuses
+                    )
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    SidebarCard(
+                        modifier = Modifier
+                            .width(300.dp)
+                            .fillMaxHeight(),
+                        currentWeekIsUpper = currentWeekIsUpper,
+                        isLoading = isLoading,
+                        loadedGroups = loadedGroups,
+                        totalGroups = totalGroups,
+                        errorText = errorText,
+                        searchText = searchText,
+                        onSearchChange = { searchText = it },
+                        filter = filter,
+                        onFilterChange = { filter = it },
+                        showFilters = showFilters,
+                        onToggleFilters = { showFilters = !showFilters },
+                        onRefresh = {
+                            refreshCurrentWeek()
+                            loadAllRooms()
+                        },
+                        totalRooms = rangeStatuses.size,
+                        busyCount = busyCount,
+                        freeCount = freeCount,
+                        visibleCount = visibleStatuses.size
+                    )
+
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxHeight(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        FiltersCard(
+                            modifier = Modifier.fillMaxWidth(),
+                            selectedDay = selectedDay,
+                            selectedPair = selectedPair,
+                            selectedWeek = selectedWeek,
+                            selectedRange = selectedRange,
+                            currentWeekIsUpper = currentWeekIsUpper,
+                            showFilters = showFilters,
+                            onWeekChange = { selectedWeek = it },
+                            onDayChange = { selectedDay = it },
+                            onPairChange = { selectedPair = it },
+                            onRangeChange = { selectedRange = it }
+                        )
+
+                        RoomsList(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            statuses = visibleStatuses
+                        )
                     }
+                }
+            }
+        }
+    }
+}
 
-                    HorizontalDivider()
+@Composable
+private fun SidebarCard(
+    modifier: Modifier,
+    currentWeekIsUpper: Boolean?,
+    isLoading: Boolean,
+    loadedGroups: Int,
+    totalGroups: Int,
+    errorText: String?,
+    searchText: String,
+    onSearchChange: (String) -> Unit,
+    filter: RoomFilter,
+    onFilterChange: (RoomFilter) -> Unit,
+    showFilters: Boolean,
+    onToggleFilters: () -> Unit,
+    onRefresh: () -> Unit,
+    totalRooms: Int,
+    busyCount: Int,
+    freeCount: Int,
+    visibleCount: Int
+) {
+    Card(modifier = modifier) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "НГИЭУ Аудитории",
+                style = MaterialTheme.typography.headlineSmall
+            )
 
-                    Text("Всего кабинетов: ${rangeStatuses.size}")
-                    Text("Занято: $busyCount")
-                    Text("Свободно: $freeCount")
-                    Text("Показано: ${visibleStatuses.size}")
+            Text(
+                text = "Текущая неделя: ${currentWeekLabel(currentWeekIsUpper)}",
+                style = MaterialTheme.typography.bodyMedium
+            )
+
+            Text(
+                text = "Обновление вручную",
+                style = MaterialTheme.typography.bodySmall
+            )
+
+            Button(
+                onClick = onRefresh,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(if (isLoading) "Обновление..." else "Обновить данные")
+            }
+
+            OutlinedButton(
+                onClick = onToggleFilters,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(if (showFilters) "Скрыть фильтры" else "Показать фильтры")
+            }
+
+            if (isLoading) {
+                CircularProgressIndicator()
+                Text("Загружено групп: $loadedGroups из $totalGroups")
+            }
+
+            if (errorText != null) {
+                Text(
+                    text = "Ошибка: $errorText",
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+
+            OutlinedTextField(
+                value = searchText,
+                onValueChange = onSearchChange,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Поиск кабинета или преподавателя") },
+                singleLine = false,
+                maxLines = 2
+            )
+
+            FilterBlock(title = "Показать") {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    RoomFilter.entries.forEach { roomFilter ->
+                        SelectButton(
+                            text = roomFilter.title,
+                            selected = filter == roomFilter,
+                            onClick = { onFilterChange(roomFilter) }
+                        )
+                    }
                 }
             }
 
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight(),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+            HorizontalDivider()
+
+            Text("Всего кабинетов: $totalRooms")
+            Text("Занято: $busyCount")
+            Text("Свободно: $freeCount")
+            Text("Показано: $visibleCount")
+        }
+    }
+}
+
+@Composable
+private fun FiltersCard(
+    modifier: Modifier,
+    selectedDay: String,
+    selectedPair: String,
+    selectedWeek: WeekFilter,
+    selectedRange: RoomRangeFilter,
+    currentWeekIsUpper: Boolean?,
+    showFilters: Boolean,
+    onWeekChange: (WeekFilter) -> Unit,
+    onDayChange: (String) -> Unit,
+    onPairChange: (String) -> Unit,
+    onRangeChange: (RoomRangeFilter) -> Unit
+) {
+    Card(modifier = modifier) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = "$selectedDay • $selectedPair",
+                style = MaterialTheme.typography.headlineSmall
+            )
+
+            Text(
+                text = "Фильтр недели: ${selectedWeek.title}",
+                style = MaterialTheme.typography.bodyMedium
+            )
+
+            Text(
+                text = "Текущая неделя: ${currentWeekLabel(currentWeekIsUpper)}",
+                style = MaterialTheme.typography.bodyMedium
+            )
+
+            Text(
+                text = "Диапазон: ${selectedRange.title}",
+                style = MaterialTheme.typography.bodyMedium
+            )
+
+            if (showFilters) {
+                FilterBlock(title = "Неделя") {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            text = "$selectedDay • $selectedPair",
-                            style = MaterialTheme.typography.headlineSmall
-                        )
-
-                        Text(
-                            text = "Фильтр недели: ${selectedWeek.title}",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-
-                        Text(
-                            text = "Текущая неделя: ${currentWeekLabel(currentWeekIsUpper)}",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-
-                        Text(
-                            text = "Диапазон: ${selectedRange.title}",
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-
-                        if (showFilters) {
-                            FilterBlock(title = "Неделя") {
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    WeekFilter.entries.forEach { week ->
-                                        SelectButton(
-                                            text = weekButtonText(week, currentWeekIsUpper),
-                                            selected = selectedWeek == week,
-                                            onClick = { selectedWeek = week }
-                                        )
-                                    }
-                                }
-                            }
-
-                            FilterBlock(title = "День") {
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    DAYS.forEach { day ->
-                                        SelectButton(
-                                            text = day,
-                                            selected = selectedDay == day,
-                                            onClick = { selectedDay = day }
-                                        )
-                                    }
-                                }
-                            }
-
-                            FilterBlock(title = "Пара") {
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    PAIRS.forEach { pair ->
-                                        SelectButton(
-                                            text = pair,
-                                            selected = selectedPair == pair,
-                                            onClick = { selectedPair = pair }
-                                        )
-                                    }
-                                }
-                            }
-
-                            FilterBlock(title = "Диапазон кабинетов") {
-                                FlowRow(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    RoomRangeFilter.entries.forEach { range ->
-                                        SelectButton(
-                                            text = range.title,
-                                            selected = selectedRange == range,
-                                            onClick = { selectedRange = range }
-                                        )
-                                    }
-                                }
-                            }
+                        WeekFilter.entries.forEach { week ->
+                            SelectButton(
+                                text = weekButtonText(week, currentWeekIsUpper),
+                                selected = selectedWeek == week,
+                                onClick = { onWeekChange(week) }
+                            )
                         }
                     }
                 }
 
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    items(visibleStatuses, key = { it.room }) { status ->
-                        Card(modifier = Modifier.fillMaxWidth()) {
-                            Column(modifier = Modifier.padding(14.dp)) {
-                                Text(
-                                    text = buildString {
-                                        append(status.room)
-                                        append(" — ")
-                                        append(if (status.isBusy) "ЗАНЯТ" else "СВОБОДЕН")
-                                    },
-                                    style = MaterialTheme.typography.titleLarge
-                                )
+                FilterBlock(title = "День") {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        DAYS.forEach { day ->
+                            SelectButton(
+                                text = day,
+                                selected = selectedDay == day,
+                                onClick = { onDayChange(day) }
+                            )
+                        }
+                    }
+                }
 
-                                if (status.isBusy) {
-                                    Spacer(modifier = Modifier.height(10.dp))
+                FilterBlock(title = "Пара") {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        PAIRS.forEach { pair ->
+                            SelectButton(
+                                text = pair,
+                                selected = selectedPair == pair,
+                                onClick = { onPairChange(pair) }
+                            )
+                        }
+                    }
+                }
 
-                                    status.lessons.forEachIndexed { index, lesson ->
-                                        if (index > 0) {
-                                            HorizontalDivider()
-                                            Spacer(modifier = Modifier.height(10.dp))
-                                        }
-
-                                        InfoLine("Преподаватель", lesson.teacher.ifBlank { "—" })
-                                        InfoLine("Предмет", lesson.subject.ifBlank { "—" })
-                                        InfoLine("Группа", lesson.group.ifBlank { "—" })
-                                        InfoLine("Время", lesson.time.ifBlank { "—" })
-
-                                        if (lesson.note.isNotBlank()) {
-                                            InfoLine("Заметка", lesson.note)
-                                        }
-
-                                        if (lesson.isChange) {
-                                            Text(
-                                                text = "Изменение",
-                                                color = MaterialTheme.colorScheme.error
-                                            )
-                                        }
-                                    }
-                                } else {
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text("На выбранный слот занятий не найдено")
-                                }
-                            }
+                FilterBlock(title = "Диапазон кабинетов") {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        RoomRangeFilter.entries.forEach { range ->
+                            SelectButton(
+                                text = range.title,
+                                selected = selectedRange == range,
+                                onClick = { onRangeChange(range) }
+                            )
                         }
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun RoomsList(
+    modifier: Modifier,
+    statuses: List<RoomStatus>
+) {
+    LazyColumn(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        if (statuses.isEmpty()) {
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Text(
+                            text = "Ничего не найдено",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text("Попробуй изменить фильтры или строку поиска")
+                    }
+                }
+            }
+        } else {
+            items(statuses, key = { it.room }) { status ->
+                RoomStatusCard(status)
+            }
+        }
+    }
+}
+
+@Composable
+private fun RoomStatusCard(status: RoomStatus) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Text(
+                text = "${status.room} — ${if (status.isBusy) "ЗАНЯТ" else "СВОБОДЕН"}",
+                style = MaterialTheme.typography.titleLarge
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (!status.isBusy) {
+                Text("На выбранный слот занятий не найдено")
+                return@Column
+            }
+
+            status.lessons.forEachIndexed { index, lesson ->
+                if (index > 0) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    HorizontalDivider()
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                Text(
+                    text = lesson.time.ifBlank { "—" },
+                    style = MaterialTheme.typography.titleSmall
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+                CompactLine("Преподаватель", lesson.teacher.ifBlank { "—" })
+                CompactLine("Предмет", lesson.subject.ifBlank { "—" })
+                CompactLine("Группа", lesson.group.ifBlank { "—" })
+
+                if (lesson.note.isNotBlank()) {
+                    CompactLine("Заметка", lesson.note)
+                }
+
+                if (lesson.isChange) {
+                    Text(
+                        text = "Изменение",
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompactLine(label: String, value: String) {
+    Text("$label: $value")
 }
 
 @Composable
@@ -502,11 +666,6 @@ private fun SelectButton(
     }
 }
 
-@Composable
-private fun InfoLine(label: String, value: String) {
-    Text("$label: $value")
-}
-
 private fun currentWeekLabel(isUpper: Boolean?): String {
     return when (isUpper) {
         true -> "Верхняя*"
@@ -521,11 +680,6 @@ private fun weekButtonText(filter: WeekFilter, currentWeekIsUpper: Boolean?): St
         WeekFilter.UPPER -> if (currentWeekIsUpper == true) "Верхняя*" else "Верхняя"
         WeekFilter.LOWER -> if (currentWeekIsUpper == false) "Нижняя*" else "Нижняя"
     }
-}
-
-private fun todayIsoDate(): String {
-    val now = Clock.System.now().toLocalDateTime(TimeZone.currentSystemDefault()).date
-    return now.toString()
 }
 
 private fun ScheduleItem.toRoomLessons(): List<RoomLesson> {
@@ -580,9 +734,7 @@ private fun matchesWeek(itemWeek: Boolean?, selectedWeek: WeekFilter): Boolean {
 }
 
 private fun matchesRoomRange(room: String, range: RoomRangeFilter): Boolean {
-    if (range == RoomRangeFilter.ALL) return true
-
-    val number = extractLeadingRoomNumber(room) ?: return false
+    val number = extractLeadingRoomNumber(room) ?: return range == RoomRangeFilter.ALL
 
     return when (range) {
         RoomRangeFilter.ALL -> true
