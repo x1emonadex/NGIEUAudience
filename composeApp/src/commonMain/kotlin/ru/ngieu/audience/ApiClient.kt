@@ -28,21 +28,15 @@ object ApiClient {
         }.body()
     }
 
-    suspend fun getTeachers(): List<Actor> {
-        return client.get("$BASE_URL/api/v2/Actors/Get") {
-            parameter("isStudent", false)
-        }.body()
-    }
-
     suspend fun getSchedule(actorId: String): List<ScheduleItem> {
         return client.get("$BASE_URL/api/v2/Schedule/Get") {
             parameter("actorId", actorId)
         }.body()
     }
 
-    suspend fun getWeekType(date: String): WeekTypeInfo {
+    suspend fun getWeekType(date: String): WeekTypeInfo? {
         return client.get("$BASE_URL/api/v2/WeekType/Get") {
             parameter("date", date)
-        }.body()
+        }.body<List<WeekTypeInfo>>().firstOrNull()
     }
 }
