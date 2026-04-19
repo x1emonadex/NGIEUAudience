@@ -23,6 +23,7 @@ kotlin {
         androidMain.dependencies {
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.androidx.activity.compose)
+            implementation("io.ktor:ktor-client-okhttp:3.1.3")
         }
 
         commonMain.dependencies {
@@ -92,9 +93,13 @@ compose.desktop {
         mainClass = "ru.ngieu.audience.MainKt"
 
         nativeDistributions {
-            targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
-            packageName = "ru.ngieu.audience"
+            targetFormats(TargetFormat.Msi)
+            packageName = "NGIEUAudience"
             packageVersion = "1.0.0"
+
+            windows {
+                iconFile.set(project.file("src/jvmMain/resources/Last.ico"))
+            }
         }
     }
 }
