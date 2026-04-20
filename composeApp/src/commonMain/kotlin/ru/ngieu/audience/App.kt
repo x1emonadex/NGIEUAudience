@@ -169,9 +169,19 @@ fun App() {
             scope.launch {
                 try {
                     val today = todayIsoDatePlatform()
-                    currentWeekIsUpper = ApiClient.getWeekType(today)?.isUpperWeek
+                    val isUpper = ApiClient.getWeekType(today)?.isUpperWeek
+
+                    currentWeekIsUpper = isUpper
+                    selectedDay = todayDayNamePlatform()
+                    selectedWeek = when (isUpper) {
+                        true -> WeekFilter.UPPER
+                        false -> WeekFilter.LOWER
+                        null -> WeekFilter.ALL
+                    }
                 } catch (_: Exception) {
                     currentWeekIsUpper = null
+                    selectedDay = "Понедельник"
+                    selectedWeek = WeekFilter.ALL
                 }
             }
         }
@@ -193,7 +203,8 @@ fun App() {
                     for ((index, group) in groups.withIndex()) {
                         try {
                             val schedule = ApiClient.getSchedule(group.id)
-                            val mapped = schedule.flatMap { item -> item.toRoomLessons() }
+                            val effectiveSchedule = schedule.applyScheduleChanges()
+                            val mapped = effectiveSchedule.flatMap { item -> item.toRoomLessons() }
 
                             lessons += mapped
                             rooms += mapped.map { it.room }
@@ -852,7 +863,7 @@ private fun RoomsList(
             }
         } else {
             items(statuses, key = { it.room }) { status ->
-                RoomStatusCard(status)
+                MobileRoomStatusCard(status)
             }
         }
     }
@@ -942,6 +953,36 @@ private fun RoomStatusCard(status: RoomStatus) {
     }
 }
 
+private fun RoomStatus.distinctTeacherNames(): List<String> {
+    return lessons
+        .flatMap { it.teacher.split(",").map(String::trim) }
+        .filter { it.isNotBlank() && it != "—" }
+        .distinct()
+}
+
+private fun RoomStatus.distinctGroupNames(): List<String> {
+    return lessons
+        .flatMap { it.group.split(",").map(String::trim) }
+        .filter { it.isNotBlank() && it != "—" }
+        .distinct()
+}
+
+private fun pluralRu(count: Int, one: String, few: String, many: String): String {
+    val mod100 = count % 100
+    val mod10 = count % 10
+
+    return when {
+        mod100 in 11..14 -> many
+        mod10 == 1 -> one
+        mod10 in 2..4 -> few
+        else -> many
+    }
+}
+
+private fun RoomStatus.hasTeacherConflict(): Boolean {
+    return distinctTeacherNames().size > 1
+}
+
 @Composable
 private fun MobileRoomStatusCard(status: RoomStatus) {
     var expanded by remember(status.room) { mutableStateOf(false) }
@@ -953,6 +994,26 @@ private fun MobileRoomStatusCard(status: RoomStatus) {
     val badgeTextColor =
         if (status.isBusy) MaterialTheme.colorScheme.primary
         else Color(0xFF2E7D32)
+
+    val teacherCount = status.distinctTeacherNames().size
+    val groupCount = status.distinctGroupNames().size
+    val hasTeacherConflict = teacherCount > 1
+
+    val extraInfoContainerColor =
+        if (hasTeacherConflict) MaterialTheme.colorScheme.error.copy(alpha = 0.14f)
+        else Color(0xFF2E7D32).copy(alpha = 0.14f)
+
+    val extraInfoTextColor =
+        if (hasTeacherConflict) MaterialTheme.colorScheme.error
+        else Color(0xFF2E7D32)
+
+    val extraInfoText = when {
+        hasTeacherConflict ->
+            "Конфликт: $teacherCount ${pluralRu(teacherCount, "преподаватель", "преподавателя", "преподавателей")}"
+        groupCount > 1 ->
+            "$groupCount ${pluralRu(groupCount, "группа", "группы", "групп")}"
+        else -> null
+    }
 
     Card(
         modifier = Modifier
@@ -1026,11 +1087,19 @@ private fun MobileRoomStatusCard(status: RoomStatus) {
                 style = MaterialTheme.typography.bodySmall
             )
 
-            if (status.lessons.size > 1) {
-                Text(
-                    text = "Ещё занятий: ${status.lessons.size - 1}",
-                    style = MaterialTheme.typography.bodySmall
-                )
+            if (extraInfoText != null) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = extraInfoContainerColor
+                    )
+                ) {
+                    Text(
+                        text = extraInfoText,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = extraInfoTextColor
+                    )
+                }
             }
 
             if (expanded) {
@@ -1119,6 +1188,46 @@ private fun weekButtonText(filter: WeekFilter, currentWeekIsUpper: Boolean?): St
         WeekFilter.UPPER -> if (currentWeekIsUpper == true) "Верхняя*" else "Верхняя"
         WeekFilter.LOWER -> if (currentWeekIsUpper == false) "Нижняя*" else "Нижняя"
     }
+}
+private fun List<ScheduleItem>.applyScheduleChanges(): List<ScheduleItem> {
+    val base = filter { !it.isChange }.toMutableList()
+    val changes = filter { it.isChange }
+
+    for (change in changes) {
+        base.removeAll { baseItem -> baseItem.matchesChange(change) }
+
+        if (!change.isCancellationChange()) {
+            base += change
+        }
+    }
+
+    return base
+}
+
+private fun ScheduleItem.matchesChange(change: ScheduleItem): Boolean {
+    val sameDay = dayName.equals(change.dayName, ignoreCase = true)
+    val samePair = classNumberName.equals(change.classNumberName, ignoreCase = true)
+
+    val sameWeek = when {
+        isUpperWeek == null || change.isUpperWeek == null -> true
+        else -> isUpperWeek == change.isUpperWeek
+    }
+
+    val sameDate = when {
+        date.isNullOrBlank() || change.date.isNullOrBlank() -> true
+        else -> date == change.date
+    }
+
+    return sameDay && samePair && sameWeek && sameDate
+}
+
+private fun ScheduleItem.isCancellationChange(): Boolean {
+    if (!isChange) return false
+
+    val subjectText = subjects.joinToString(", ").trim().lowercase()
+    val allOfficesEmpty = offices.all { it.isBlank() || it == "-" }
+
+    return subjectText.contains("нет пар") && allOfficesEmpty
 }
 
 private fun ScheduleItem.toRoomLessons(): List<RoomLesson> {
