@@ -1,5 +1,7 @@
 package ru.ngieu.audience
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -13,17 +15,20 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -32,8 +37,49 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+
+private val NgieuWhite = Color(0xFFFFFFFF)
+private val NgieuPrimary = Color(0xFF9F003D)
+private val NgieuText = Color(0xFF333333)
+private val NgieuSurface = Color(0xFFFFFFFF)
+private val NgieuSurfaceVariant = Color(0xFFF6EFF2)
+private val NgieuPrimaryContainer = Color(0xFFFFE5EE)
+private val NgieuOutline = Color(0xFFD9C5CD)
+
+private val NgieuColorScheme = lightColorScheme(
+    primary = NgieuPrimary,
+    onPrimary = NgieuWhite,
+    primaryContainer = NgieuPrimaryContainer,
+    onPrimaryContainer = NgieuPrimary,
+    secondary = NgieuPrimary,
+    onSecondary = NgieuWhite,
+    background = NgieuWhite,
+    onBackground = NgieuText,
+    surface = NgieuSurface,
+    onSurface = NgieuText,
+    surfaceVariant = NgieuSurfaceVariant,
+    onSurfaceVariant = NgieuText,
+    outline = NgieuOutline,
+    error = Color(0xFFB3261E),
+    onError = NgieuWhite
+)
+
+@Composable
+private fun NgieuTheme(content: @Composable () -> Unit) {
+    MaterialTheme(
+        colorScheme = NgieuColorScheme,
+        typography = MaterialTheme.typography,
+        content = content
+    )
+}
 
 private data class RoomLesson(
     val room: String,
@@ -93,9 +139,10 @@ private val PAIRS = listOf(
     "7 пара"
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun App() {
-    MaterialTheme {
+    NgieuTheme {
         val scope = rememberCoroutineScope()
 
         var allLessons by remember { mutableStateOf<List<RoomLesson>>(emptyList()) }
@@ -111,6 +158,7 @@ fun App() {
         var searchText by remember { mutableStateOf("") }
         var filter by remember { mutableStateOf(RoomFilter.ALL) }
         var showFilters by remember { mutableStateOf(true) }
+        var showMobileFilters by remember { mutableStateOf(false) }
 
         var isLoading by remember { mutableStateOf(false) }
         var loadedGroups by remember { mutableStateOf(0) }
@@ -121,9 +169,19 @@ fun App() {
             scope.launch {
                 try {
                     val today = todayIsoDatePlatform()
-                    currentWeekIsUpper = ApiClient.getWeekType(today)?.isUpperWeek
+                    val isUpper = ApiClient.getWeekType(today)?.isUpperWeek
+
+                    currentWeekIsUpper = isUpper
+                    selectedDay = todayDayNamePlatform()
+                    selectedWeek = when (isUpper) {
+                        true -> WeekFilter.UPPER
+                        false -> WeekFilter.LOWER
+                        null -> WeekFilter.ALL
+                    }
                 } catch (_: Exception) {
                     currentWeekIsUpper = null
+                    selectedDay = "Понедельник"
+                    selectedWeek = WeekFilter.ALL
                 }
             }
         }
@@ -145,7 +203,8 @@ fun App() {
                     for ((index, group) in groups.withIndex()) {
                         try {
                             val schedule = ApiClient.getSchedule(group.id)
-                            val mapped = schedule.flatMap { item -> item.toRoomLessons() }
+                            val effectiveSchedule = schedule.applyScheduleChanges()
+                            val mapped = effectiveSchedule.flatMap { item -> item.toRoomLessons() }
 
                             lessons += mapped
                             rooms += mapped.map { it.room }
@@ -229,58 +288,56 @@ fun App() {
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(12.dp)
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 12.dp)
         ) {
             val compact = maxWidth < 950.dp
 
             if (compact) {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    SidebarCard(
-                        modifier = Modifier.fillMaxWidth(),
-                        currentWeekIsUpper = currentWeekIsUpper,
-                        isLoading = isLoading,
-                        loadedGroups = loadedGroups,
-                        totalGroups = totalGroups,
-                        errorText = errorText,
-                        searchText = searchText,
-                        onSearchChange = { searchText = it },
-                        filter = filter,
-                        onFilterChange = { filter = it },
-                        showFilters = showFilters,
-                        onToggleFilters = { showFilters = !showFilters },
-                        onRefresh = {
-                            refreshCurrentWeek()
-                            loadAllRooms()
-                        },
-                        totalRooms = rangeStatuses.size,
-                        busyCount = busyCount,
-                        freeCount = freeCount,
-                        visibleCount = visibleStatuses.size
-                    )
+                MobileRoomsScreen(
+                    currentWeekIsUpper = currentWeekIsUpper,
+                    isLoading = isLoading,
+                    loadedGroups = loadedGroups,
+                    totalGroups = totalGroups,
+                    errorText = errorText,
+                    searchText = searchText,
+                    onSearchChange = { searchText = it },
+                    filter = filter,
+                    onFilterChange = { filter = it },
+                    onRefresh = {
+                        refreshCurrentWeek()
+                        loadAllRooms()
+                    },
+                    totalRooms = rangeStatuses.size,
+                    busyCount = busyCount,
+                    freeCount = freeCount,
+                    visibleCount = visibleStatuses.size,
+                    statuses = visibleStatuses,
+                    selectedDay = selectedDay,
+                    selectedPair = selectedPair,
+                    selectedWeek = selectedWeek,
+                    selectedRange = selectedRange,
+                    onOpenFilters = { showMobileFilters = true }
+                )
 
-                    FiltersCard(
-                        modifier = Modifier.fillMaxWidth(),
-                        selectedDay = selectedDay,
-                        selectedPair = selectedPair,
-                        selectedWeek = selectedWeek,
-                        selectedRange = selectedRange,
-                        currentWeekIsUpper = currentWeekIsUpper,
-                        showFilters = showFilters,
-                        onWeekChange = { selectedWeek = it },
-                        onDayChange = { selectedDay = it },
-                        onPairChange = { selectedPair = it },
-                        onRangeChange = { selectedRange = it }
-                    )
-
-                    RoomsList(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
-                        statuses = visibleStatuses
-                    )
+                if (showMobileFilters) {
+                    ModalBottomSheet(
+                        onDismissRequest = { showMobileFilters = false }
+                    ) {
+                        MobileFiltersSheet(
+                            selectedDay = selectedDay,
+                            selectedPair = selectedPair,
+                            selectedWeek = selectedWeek,
+                            selectedRange = selectedRange,
+                            currentWeekIsUpper = currentWeekIsUpper,
+                            onWeekChange = { selectedWeek = it },
+                            onDayChange = { selectedDay = it },
+                            onPairChange = { selectedPair = it },
+                            onRangeChange = { selectedRange = it },
+                            onClose = { showMobileFilters = false }
+                        )
+                    }
                 }
             } else {
                 Row(
@@ -314,8 +371,8 @@ fun App() {
 
                     Column(
                         modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight(),
+                            .fillMaxHeight()
+                            .weight(1f),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         FiltersCard(
@@ -346,6 +403,222 @@ fun App() {
 }
 
 @Composable
+private fun MobileRoomsScreen(
+    currentWeekIsUpper: Boolean?,
+    isLoading: Boolean,
+    loadedGroups: Int,
+    totalGroups: Int,
+    errorText: String?,
+    searchText: String,
+    onSearchChange: (String) -> Unit,
+    filter: RoomFilter,
+    onFilterChange: (RoomFilter) -> Unit,
+    onRefresh: () -> Unit,
+    totalRooms: Int,
+    busyCount: Int,
+    freeCount: Int,
+    visibleCount: Int,
+    statuses: List<RoomStatus>,
+    selectedDay: String,
+    selectedPair: String,
+    selectedWeek: WeekFilter,
+    selectedRange: RoomRangeFilter,
+    onOpenFilters: () -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            text = "НГИЭУ Аудитории",
+            style = MaterialTheme.typography.headlineSmall
+        )
+
+        Text(
+            text = "$selectedDay • $selectedPair",
+            style = MaterialTheme.typography.titleMedium
+        )
+
+        Text(
+            text = "Неделя: ${currentWeekLabel(currentWeekIsUpper)} • ${selectedWeek.title} • ${selectedRange.title}",
+            style = MaterialTheme.typography.bodySmall
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Button(
+                onClick = onRefresh,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(if (isLoading) "Обновление..." else "Обновить")
+            }
+
+            OutlinedButton(
+                onClick = onOpenFilters,
+                modifier = Modifier.weight(1f)
+            ) {
+                Text("Фильтры")
+            }
+        }
+
+        if (isLoading) {
+            Text(
+                text = "Загружено групп: $loadedGroups из $totalGroups",
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+
+        if (errorText != null) {
+            Text(
+                text = "Ошибка: $errorText",
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+
+        OutlinedTextField(
+            value = searchText,
+            onValueChange = onSearchChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Поиск кабинета / преподавателя") },
+            singleLine = true
+        )
+
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            RoomFilter.entries.forEach { roomFilter ->
+                SelectButton(
+                    text = roomFilter.title,
+                    selected = filter == roomFilter,
+                    onClick = { onFilterChange(roomFilter) }
+                )
+            }
+        }
+
+        Text(
+            text = "Показано: $visibleCount из $totalRooms • Занято: $busyCount • Свободно: $freeCount",
+            style = MaterialTheme.typography.bodySmall
+        )
+
+        MobileRoomsList(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            statuses = statuses
+        )
+    }
+}
+
+@Composable
+private fun MobileFiltersSheet(
+    selectedDay: String,
+    selectedPair: String,
+    selectedWeek: WeekFilter,
+    selectedRange: RoomRangeFilter,
+    currentWeekIsUpper: Boolean?,
+    onWeekChange: (WeekFilter) -> Unit,
+    onDayChange: (String) -> Unit,
+    onPairChange: (String) -> Unit,
+    onRangeChange: (RoomRangeFilter) -> Unit,
+    onClose: () -> Unit
+) {
+    val scrollState = rememberScrollState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .verticalScroll(scrollState)
+            .padding(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Text(
+            text = "Фильтры",
+            style = MaterialTheme.typography.headlineSmall
+        )
+
+        Text(
+            text = "$selectedDay • $selectedPair",
+            style = MaterialTheme.typography.titleMedium
+        )
+
+        Text(
+            text = "Текущая неделя: ${currentWeekLabel(currentWeekIsUpper)}",
+            style = MaterialTheme.typography.bodySmall
+        )
+
+        FilterBlock(title = "Неделя") {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                WeekFilter.entries.forEach { week ->
+                    SelectButton(
+                        text = weekButtonText(week, currentWeekIsUpper),
+                        selected = selectedWeek == week,
+                        onClick = { onWeekChange(week) }
+                    )
+                }
+            }
+        }
+
+        FilterBlock(title = "День") {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                DAYS.forEach { day ->
+                    SelectButton(
+                        text = day,
+                        selected = selectedDay == day,
+                        onClick = { onDayChange(day) }
+                    )
+                }
+            }
+        }
+
+        FilterBlock(title = "Пара") {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                PAIRS.forEach { pair ->
+                    SelectButton(
+                        text = pair,
+                        selected = selectedPair == pair,
+                        onClick = { onPairChange(pair) }
+                    )
+                }
+            }
+        }
+
+        FilterBlock(title = "Диапазон кабинетов") {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                RoomRangeFilter.entries.forEach { range ->
+                    SelectButton(
+                        text = range.title,
+                        selected = selectedRange == range,
+                        onClick = { onRangeChange(range) }
+                    )
+                }
+            }
+        }
+
+        Button(
+            onClick = onClose,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Готово")
+        }
+    }
+}
+@Composable
 private fun SidebarCard(
     modifier: Modifier,
     currentWeekIsUpper: Boolean?,
@@ -365,11 +638,15 @@ private fun SidebarCard(
     freeCount: Int,
     visibleCount: Int
 ) {
-    Card(modifier = modifier) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    ) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+                .fillMaxWidth()
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -462,7 +739,12 @@ private fun FiltersCard(
     onPairChange: (String) -> Unit,
     onRangeChange: (RoomRangeFilter) -> Unit
 ) {
-    Card(modifier = modifier) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        )
+    ) {
         Column(
             modifier = Modifier.padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -563,7 +845,12 @@ private fun RoomsList(
     ) {
         if (statuses.isEmpty()) {
             item {
-                Card(modifier = Modifier.fillMaxWidth()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                ) {
                     Column(modifier = Modifier.padding(14.dp)) {
                         Text(
                             text = "Ничего не найдено",
@@ -576,7 +863,38 @@ private fun RoomsList(
             }
         } else {
             items(statuses, key = { it.room }) { status ->
-                RoomStatusCard(status)
+                MobileRoomStatusCard(status)
+            }
+        }
+    }
+}
+
+@Composable
+private fun MobileRoomsList(
+    modifier: Modifier,
+    statuses: List<RoomStatus>
+) {
+    LazyColumn(
+        modifier = modifier,
+        contentPadding = PaddingValues(bottom = 96.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        if (statuses.isEmpty()) {
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Text(
+                            text = "Ничего не найдено",
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text("Попробуй изменить фильтры или поиск")
+                    }
+                }
+            }
+        } else {
+            items(statuses, key = { it.room }) { status ->
+                MobileRoomStatusCard(status)
             }
         }
     }
@@ -584,7 +902,12 @@ private fun RoomsList(
 
 @Composable
 private fun RoomStatusCard(status: RoomStatus) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Text(
                 text = "${status.room} — ${if (status.isBusy) "ЗАНЯТ" else "СВОБОДЕН"}",
@@ -624,6 +947,191 @@ private fun RoomStatusCard(status: RoomStatus) {
                         text = "Изменение",
                         color = MaterialTheme.colorScheme.error
                     )
+                }
+            }
+        }
+    }
+}
+
+private fun RoomStatus.distinctTeacherNames(): List<String> {
+    return lessons
+        .flatMap { it.teacher.split(",").map(String::trim) }
+        .filter { it.isNotBlank() && it != "—" }
+        .distinct()
+}
+
+private fun RoomStatus.distinctGroupNames(): List<String> {
+    return lessons
+        .flatMap { it.group.split(",").map(String::trim) }
+        .filter { it.isNotBlank() && it != "—" }
+        .distinct()
+}
+
+private fun pluralRu(count: Int, one: String, few: String, many: String): String {
+    val mod100 = count % 100
+    val mod10 = count % 10
+
+    return when {
+        mod100 in 11..14 -> many
+        mod10 == 1 -> one
+        mod10 in 2..4 -> few
+        else -> many
+    }
+}
+
+private fun RoomStatus.hasTeacherConflict(): Boolean {
+    return distinctTeacherNames().size > 1
+}
+
+@Composable
+private fun MobileRoomStatusCard(status: RoomStatus) {
+    var expanded by remember(status.room) { mutableStateOf(false) }
+
+    val badgeContainerColor =
+        if (status.isBusy) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+        else Color(0xFF2E7D32).copy(alpha = 0.14f)
+
+    val badgeTextColor =
+        if (status.isBusy) MaterialTheme.colorScheme.primary
+        else Color(0xFF2E7D32)
+
+    val teacherCount = status.distinctTeacherNames().size
+    val groupCount = status.distinctGroupNames().size
+    val hasTeacherConflict = teacherCount > 1
+
+    val extraInfoContainerColor =
+        if (hasTeacherConflict) MaterialTheme.colorScheme.error.copy(alpha = 0.14f)
+        else Color(0xFF2E7D32).copy(alpha = 0.14f)
+
+    val extraInfoTextColor =
+        if (hasTeacherConflict) MaterialTheme.colorScheme.error
+        else Color(0xFF2E7D32)
+
+    val extraInfoText = when {
+        hasTeacherConflict ->
+            "Конфликт: $teacherCount ${pluralRu(teacherCount, "преподаватель", "преподавателя", "преподавателей")}"
+        groupCount > 1 ->
+            "$groupCount ${pluralRu(groupCount, "группа", "группы", "групп")}"
+        else -> null
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { expanded = !expanded },
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = status.room,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = badgeContainerColor
+                        )
+                    ) {
+                        Text(
+                            text = if (status.isBusy) "ЗАНЯТ" else "СВОБОДЕН",
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = badgeTextColor
+                        )
+                    }
+                }
+
+                OutlinedButton(
+                    onClick = { expanded = !expanded },
+                    modifier = Modifier.height(34.dp)
+                ) {
+                    Text(if (expanded) "Скрыть" else "Детали")
+                }
+            }
+
+            if (!status.isBusy) {
+                Text(
+                    text = "На выбранную пару кабинет свободен",
+                    style = MaterialTheme.typography.bodyMedium
+                )
+                return@Column
+            }
+
+            val firstLesson = status.lessons.first()
+
+            Text(
+                text = firstLesson.time.ifBlank { "—" },
+                style = MaterialTheme.typography.labelLarge
+            )
+
+            Text(
+                text = firstLesson.subject.ifBlank { "—" },
+                style = MaterialTheme.typography.bodyMedium
+            )
+
+            Text(
+                text = firstLesson.teacher.ifBlank { "—" },
+                style = MaterialTheme.typography.bodySmall
+            )
+
+            if (extraInfoText != null) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = extraInfoContainerColor
+                    )
+                ) {
+                    Text(
+                        text = extraInfoText,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = extraInfoTextColor
+                    )
+                }
+            }
+
+            if (expanded) {
+                Spacer(modifier = Modifier.height(2.dp))
+                HorizontalDivider()
+                Spacer(modifier = Modifier.height(2.dp))
+
+                status.lessons.forEachIndexed { index, lesson ->
+                    if (index > 0) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        HorizontalDivider()
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+
+                    Text(
+                        text = lesson.time.ifBlank { "—" },
+                        style = MaterialTheme.typography.titleSmall
+                    )
+                    CompactLine("Преподаватель", lesson.teacher.ifBlank { "—" })
+                    CompactLine("Предмет", lesson.subject.ifBlank { "—" })
+                    CompactLine("Группа", lesson.group.ifBlank { "—" })
+
+                    if (lesson.note.isNotBlank()) {
+                        CompactLine("Заметка", lesson.note)
+                    }
+
+                    if (lesson.isChange) {
+                        Text(
+                            text = "Изменение",
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
                 }
             }
         }
@@ -680,6 +1188,46 @@ private fun weekButtonText(filter: WeekFilter, currentWeekIsUpper: Boolean?): St
         WeekFilter.UPPER -> if (currentWeekIsUpper == true) "Верхняя*" else "Верхняя"
         WeekFilter.LOWER -> if (currentWeekIsUpper == false) "Нижняя*" else "Нижняя"
     }
+}
+private fun List<ScheduleItem>.applyScheduleChanges(): List<ScheduleItem> {
+    val base = filter { !it.isChange }.toMutableList()
+    val changes = filter { it.isChange }
+
+    for (change in changes) {
+        base.removeAll { baseItem -> baseItem.matchesChange(change) }
+
+        if (!change.isCancellationChange()) {
+            base += change
+        }
+    }
+
+    return base
+}
+
+private fun ScheduleItem.matchesChange(change: ScheduleItem): Boolean {
+    val sameDay = dayName.equals(change.dayName, ignoreCase = true)
+    val samePair = classNumberName.equals(change.classNumberName, ignoreCase = true)
+
+    val sameWeek = when {
+        isUpperWeek == null || change.isUpperWeek == null -> true
+        else -> isUpperWeek == change.isUpperWeek
+    }
+
+    val sameDate = when {
+        date.isNullOrBlank() || change.date.isNullOrBlank() -> true
+        else -> date == change.date
+    }
+
+    return sameDay && samePair && sameWeek && sameDate
+}
+
+private fun ScheduleItem.isCancellationChange(): Boolean {
+    if (!isChange) return false
+
+    val subjectText = subjects.joinToString(", ").trim().lowercase()
+    val allOfficesEmpty = offices.all { it.isBlank() || it == "-" }
+
+    return subjectText.contains("нет пар") && allOfficesEmpty
 }
 
 private fun ScheduleItem.toRoomLessons(): List<RoomLesson> {
