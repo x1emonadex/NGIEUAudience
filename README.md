@@ -1,40 +1,119 @@
-This is a Kotlin Multiplatform project targeting Android, Desktop (JVM).
+# НГИЭУ: свободные аудитории
 
-* [/composeApp](./composeApp/src) is for code that will be shared across your Compose Multiplatform applications.
-  It contains several subfolders:
-  - [commonMain](./composeApp/src/commonMain/kotlin) is for code that’s common for all targets.
-  - Other folders are for Kotlin code that will be compiled for only the platform indicated in the folder name.
-    For example, if you want to use Apple’s CoreCrypto for the iOS part of your Kotlin app,
-    the [iosMain](./composeApp/src/iosMain/kotlin) folder would be the right place for such calls.
-    Similarly, if you want to edit the Desktop (JVM) specific part, the [jvmMain](./composeApp/src/jvmMain/kotlin)
-    folder is the appropriate location.
+Приложение показывает, какие аудитории **заняты**, а какие **свободны** в
+выбранный день и пару. Одно приложение для **Android** и **Windows** на Compose
+Multiplatform.
 
-### Build and Run Android Application
+## О проекте
 
-To build and run the development version of the Android app, use the run configuration from the run widget
-in your IDE’s toolbar or build it directly from the terminal:
-- on macOS/Linux
-  ```shell
-  ./gradlew :composeApp:assembleDebug
-  ```
-- on Windows
-  ```shell
-  .\gradlew.bat :composeApp:assembleDebug
-  ```
+Обычное расписание отвечает на вопрос «где занимается моя группа». Обратный
+вопрос — «какой кабинет сейчас свободен» — по нему не решается: нужно
+просмотреть расписание всех групп и собрать картину по кабинетам.
 
-### Build and Run Desktop (JVM) Application
+Приложение делает это автоматически: загружает список студенческих групп через
+открытый API расписания, получает расписание каждой группы, вытаскивает из
+занятий номера кабинетов и строит таблицу занятости на выбранный слот — день,
+пара и неделя (верхняя или нижняя). Дальше можно отфильтровать только
+свободные кабинеты и найти подходящий.
 
-To build and run the development version of the desktop app, use the run configuration from the run widget
-in your IDE’s toolbar or run it directly from the terminal:
-- on macOS/Linux
-  ```shell
-  ./gradlew :composeApp:run
-  ```
-- on Windows
-  ```shell
-  .\gradlew.bat :composeApp:run
-  ```
+## Возможности
 
----
+- выбор дня (понедельник — суббота) и пары (1–7);
+- фильтр недели: все / верхняя / нижняя, текущая неделя определяется по API и
+  помечается звёздочкой;
+- фильтр по занятости: все / занятые / свободные;
+- фильтр по диапазону номеров кабинетов: 100–199, 200–299, 300–399;
+- поиск по номеру кабинета, преподавателю, группе и предмету;
+- карточка на каждый кабинет: статус (ЗАНЯТ / СВОБОДЕН), время, преподаватель,
+  предмет, группа, заметка и пометка «Изменение»;
+- счётчики: всего кабинетов, занято, свободно, показано после фильтров;
+- индикатор загрузки с числом обработанных групп из общего количества и
+  кнопка ручного обновления данных;
+- адаптивная вёрстка: на узком экране фильтры уходят наверх, на широком —
+  остаются боковой панелью.
 
-Learn more about [Kotlin Multiplatform](https://www.jetbrains.com/help/kotlin-multiplatform-dev/get-started.html)…
+## Как это работает
+
+Данные берутся из открытого API расписания НГИЭУ (Ktor-клиент,
+`kotlinx.serialization`):
+
+| Запрос | Что возвращает |
+| --- | --- |
+| `/api/v2/Actors/Get?isStudent=true` | список студенческих групп |
+| `/api/v2/Schedule/Get?actorId=…` | расписание группы |
+| `/api/v2/WeekType/Get?date=…` | тип недели (верхняя / нижняя) на дату |
+
+Дальше занятия раскладываются по кабинетам: из названия убираются «каб.» и
+«кабинет», отбрасываются записи «нет пар», «дистанционно», «дистант» и «-»,
+а номер кабинета берётся как первое число в строке — по нему идёт сортировка и
+фильтр по диапазонам.
+
+Загрузка идёт по всем группам последовательно, поэтому первый запуск занимает
+несколько секунд; прогресс виден в боковой панели.
+
+## Скачать
+
+Готовые сборки в разделе
+[**Releases**](https://github.com/x1emonadex/NGIEUAudience/releases):
+
+| Платформа | Файл |
+| --- | --- |
+| Android | `composeApp-debug.apk` (тег `v2.0.0-android`) |
+| Windows | `NGIEUAudience-1.0.0.msi` (тег `v2.0.0`) |
+
+## Сборка и запуск
+
+```sh
+# Desktop (Windows / macOS / Linux)
+gradlew :composeApp:run
+
+# Android: сборка отладочного APK
+gradlew :composeApp:assembleDebug
+```
+
+Упаковка дистрибутивов рабочего стола (`.msi`, `.deb`, `.dmg`):
+
+```sh
+gradlew :composeApp:packageDistributionForCurrentOS
+```
+
+Для Android нужен установленный Android SDK; для рабочего стола — JDK 11+.
+
+## Структура репозитория
+
+```text
+composeApp/src/
+  commonMain/kotlin/ru/ngieu/audience/
+    App.kt            весь интерфейс: фильтры, список кабинетов, карточки
+    ApiClient.kt      запросы к API расписания
+    Actor.kt          модель группы
+    ScheduleItem.kt   модель занятия
+    WeekTypeInfo.kt   модель типа недели
+    TodayProvider.kt  ожидаемая функция текущей даты
+  androidMain/        активность, разрешения, реализация TodayProvider
+  jvmMain/            точка входа приложения для рабочего стола
+gradle/libs.versions.toml  версии всех зависимостей
+```
+
+## Технологии
+
+Kotlin 2.3.20 · Compose Multiplatform 1.10.3 · Material 3 · Ktor 3.1.3 ·
+kotlinx.serialization 1.8.1 · kotlinx-datetime · AGP 8.11.2 ·
+minSdk 24, targetSdk 36 · Gradle с version catalog
+
+## Известные ограничения
+
+- Собирается только под Android и рабочий стол (JVM); цели под iOS нет.
+- Данные обновляются вручную: автоматического обновления по расписанию нет.
+- Занятость зависит от доступности API расписания; при недоступности
+  приложение покажет сообщение об ошибке и пустой список.
+- Загрузка идёт последовательно по всем группам — на большом числе групп это
+  занимает время, кэша между запусками нет.
+
+## Возможное развитие
+
+- кэширование расписания и автоматическое обновление;
+- поиск свободной аудитории сразу на несколько пар подряд;
+- группировка по корпусам и этажам, схема этажа;
+- уведомления об освободившейся аудитории;
+- поддержка нескольких корпусов в одном фильтре.
